@@ -1,25 +1,52 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+// Decoupled validation (simple, no dependencies)
+function validateLogin(values) {
+  const errors = {};
+  if (!/^09\d{9}$/.test(values.phone || '')) {
+    errors.phone = 'Phone must be 11 digits and start with 09';
+  }
+  return errors;
+}
 
 export default function LoginPage() {
   const router = useRouter();
   const [phone, setPhone] = useState('');
-  const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
+
+  // If user exists in localStorage, don't show login page; redirect to home
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('user');
+      if (!raw) return;
+      JSON.parse(raw); // will throw if malformed
+      setRedirecting(true);
+      router.replace('/'); // already logged in -> go to dashboard
+    } catch {
+      // Corrupted JSON -> clean it up so app won't crash later
+      localStorage.removeItem('user');
+    }
+  }, [router]);
+
+  const runValidation = (values) => {
+    const errors = validateLogin(values);
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   // Handle login click
   const handleLogin = async () => {
-    // Validate Iranian mobile number
-    if (!/^09\d{9}$/.test(phone)) {
-      setError('Phone must be 11 digits and start with 09');
-      return;
-    }
+    if (!runValidation({ phone })) return;
 
     try {
       setLoading(true);
-      setError('');
+      setErrorMessage('');
 
       // Fetch random user from API
       const res = await fetch('https://randomuser.me/api/?results=1&nat=us', {
@@ -37,11 +64,14 @@ export default function LoginPage() {
       router.push('/');
     } catch (err) {
       console.error('Login failed:', err);
-      setError('Something went wrong. Please try again.');
+      setErrorMessage('Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
+  // Avoid flashing the login UI while redirecting
+  if (redirecting) return null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center px-4 py-10">
@@ -82,7 +112,7 @@ export default function LoginPage() {
               className={[
                 'flex items-center rounded-xl border bg-slate-900/40',
                 'focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent',
-                error ? 'border-rose-600/60' : 'border-slate-700/70',
+                fieldErrors.phone ? 'border-rose-600/60' : 'border-slate-700/70',
               ].join(' ')}
             >
               <span className="px-3 text-slate-400 select-none">+98</span>
@@ -96,8 +126,10 @@ export default function LoginPage() {
                 placeholder="09123456789"
                 value={phone}
                 onChange={(e) => {
-                  setPhone(e.target.value.replace(/[^\d]/g, ''));
-                  if (error) setError('');
+                  const v = e.target.value.replace(/[^\d]/g, '');
+                  setPhone(v);
+                  runValidation({ phone: v }); // dynamic validation on change
+                  if (errorMessage) setErrorMessage('');
                 }}
                 className="w-full bg-transparent px-3 py-3 text-slate-100 placeholder:text-slate-500 focus:outline-none"
               />
@@ -106,9 +138,9 @@ export default function LoginPage() {
               Must be 11 digits and start with 09.
             </p>
 
-            {error && (
+            {fieldErrors.phone && (
               <p className="mt-3 rounded-lg border border-rose-700/50 bg-rose-900/30 px-3 py-2 text-sm text-rose-200">
-                {error}
+                {fieldErrors.phone}
               </p>
             )}
 
@@ -156,6 +188,12 @@ export default function LoginPage() {
                 </>
               )}
             </button>
+
+            {errorMessage && (
+              <p className="mt-4 rounded-lg border border-rose-700/50 bg-rose-900/30 px-3 py-2 text-sm text-rose-200">
+                {errorMessage}
+              </p>
+            )}
 
             <p className="mt-4 text-center text-xs text-slate-400">
               This is a demo. A random user profile will be stored locally.
